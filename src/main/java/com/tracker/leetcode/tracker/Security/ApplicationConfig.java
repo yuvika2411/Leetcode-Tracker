@@ -22,17 +22,21 @@ public class ApplicationConfig {
     private final StudentRepository studentRepository;
 
     @Bean
-    public UserDetailsService userDetailsService(){
+    public UserDetailsService userDetailsService() {
         return username -> {
-            var mentor = mentorRepository.findByEmail(username);
-            if (mentor.isPresent()){
-                return mentor.get();
-            }
+            // 2. Check Student collection first
             var student = studentRepository.findByEmail(username);
-            if (student.isPresent()){
+            if (student.isPresent()) {
                 return student.get();
             }
-            // 3. If neither, reject the login
+
+            // 3. If not a student, check Mentor collection
+            var mentor = mentorRepository.findByEmail(username);
+            if (mentor.isPresent()) {
+                return mentor.get();
+            }
+
+            // 4. If in neither, throw the error
             throw new UsernameNotFoundException("User not found with email: " + username);
         };
     }
