@@ -14,7 +14,6 @@ import java.util.List;
 @Component
 public class StudentMapper {
 
-
     // Use this when fetching a student globally (no classroom context)
     public StudentSummaryDTO toSummaryDTO(Student student) {
         return toSummaryDTO(student, null);
@@ -22,22 +21,23 @@ public class StudentMapper {
 
     // Updated Method: Now accepts the list of assignments!
     public StudentSummaryDTO toSummaryDTO(Student student, List<Assignment> classroomAssignments) {
-
         int completed = 0;
         int pending = 0;
 
-        if (classroomAssignments != null) {
+        if (classroomAssignments != null && !classroomAssignments.isEmpty()) {
             for (Assignment assignment : classroomAssignments) {
-
-                // 1. Check if they manually validated it first (Fastest)
+                // 1. Check if they manually validated it first (O(1) lookup if it's a HashSet, very fast)
                 boolean isManuallyValidated = student.getManuallyCompletedAssignments() != null &&
                         student.getManuallyCompletedAssignments().contains(assignment.getId());
 
                 // 2. Fallback: Check if the server caught it in their recent activity
-                boolean isCaughtByServer = student.getRecentSubmissions().stream()
-                        .anyMatch(sub -> sub.getTitleSlug().equals(assignment.getTitleSlug())
-                                && sub.getTimestamp() >= assignment.getStartTimestamp()
-                                && sub.getTimestamp() <= assignment.getEndTimestamp());
+                boolean isCaughtByServer = false;
+                if (!isManuallyValidated && student.getRecentSubmissions() != null) {
+                    isCaughtByServer = student.getRecentSubmissions().stream()
+                            .anyMatch(sub -> sub.getTitleSlug().equals(assignment.getTitleSlug())
+                                    && sub.getTimestamp() >= assignment.getStartTimestamp()
+                                    && sub.getTimestamp() <= assignment.getEndTimestamp());
+                }
 
                 // If either is true, they get credit!
                 if (isManuallyValidated || isCaughtByServer) {
@@ -51,12 +51,13 @@ public class StudentMapper {
         return StudentSummaryDTO.builder()
                 .id(student.getId())
                 .name(student.getName())
+                .email(student.getEmail())
                 .leetcodeUsername(student.getLeetcodeUsername())
                 .rank(student.getRank() != null ? student.getRank() : "Unranked")
                 .currentContestRating(student.getCurrentContestRating())
                 .totalSolved(calculateTotalSolved(student.getProblemStats()))
                 .consistencyStreak(calculateStreak(student.getProgressHistory()))
-                .completedAssignments(completed) // Map the new stats!
+                .completedAssignments(completed)
                 .pendingAssignments(pending)
                 .build();
     }
@@ -82,9 +83,12 @@ public class StudentMapper {
                 .build();
     }
 
+    // THE FIX IS HERE: We now pass ALL the heavy data to the Extended DTO!
     public StudentExtendedDTO toExtendedDTO(Student student) {
         return StudentExtendedDTO.builder()
+                .id(student.getId()) // Good practice to include ID
                 .name(student.getName())
+                .email(student.getEmail()) // Added Email
                 .leetcodeUsername(student.getLeetcodeUsername())
                 .about(student.getAbout())
                 .rank(student.getRank())
@@ -92,8 +96,17 @@ public class StudentMapper {
                 .socialMedia(student.getSocialMedia())
                 .badges(student.getBadges())
                 .contestHistory(student.getContestHistory())
+
+                // --- THE MISSING ARRAYS ---
+                .problemStats(student.getProblemStats())
+                .recentSubmissions(student.getRecentSubmissions())
+                .progressHistory(student.getProgressHistory())
+
+                // Fallbacks just in case the arrays are empty
                 .build();
     }
+
+    // --- Helper Methods ---
 
     private int calculateTotalSolved(List<ProblemStats> stats){
         if (stats == null || stats.isEmpty()) return 0;
@@ -104,6 +117,7 @@ public class StudentMapper {
                 .findFirst()
                 .orElse(0);
     }
+
     private int calculateStreak(List<DailyProgress> history) {
         if (history == null || history.isEmpty()) return 0;
 
@@ -119,6 +133,7 @@ public class StudentMapper {
         if (expectedDate.isBefore(LocalDate.now().minusDays(2))) {
             return 0;
         }
+
         for (DailyProgress progress : sortedHistory) {
             if (progress.getDate().equals(expectedDate)) {
                 streak++;
@@ -129,6 +144,4 @@ public class StudentMapper {
         }
         return streak;
     }
-
-
 }

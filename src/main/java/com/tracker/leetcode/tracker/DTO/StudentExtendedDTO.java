@@ -1,8 +1,6 @@
 package com.tracker.leetcode.tracker.DTO;
 
-import com.tracker.leetcode.tracker.Models.Badge;
-import com.tracker.leetcode.tracker.Models.ContestHistory;
-import com.tracker.leetcode.tracker.Models.SocialMedia;
+import com.tracker.leetcode.tracker.Models.*;
 import lombok.Builder;
 import lombok.Data;
 import java.util.List;
@@ -18,4 +16,9 @@ public class StudentExtendedDTO {
     private SocialMedia socialMedia;
     private List<Badge> badges;
     private List<ContestHistory> contestHistory;
+    private List<ProblemStats> problemStats;
+    private List<RecentSubmission> recentSubmissions;
+    private List<DailyProgress> progressHistory;
+    private String id;
+    private String email;
 }

@@ -15,4 +15,5 @@ public class StudentSummaryDTO {
     private int consistencyStreak;
     private int completedAssignments;
     private int pendingAssignments;
+    private String email;
 }

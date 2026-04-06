@@ -1,6 +1,5 @@
 package com.tracker.leetcode.tracker.Controller;
 
-
 import com.tracker.leetcode.tracker.DTO.AuthenticationRequest;
 import com.tracker.leetcode.tracker.DTO.AuthenticationResponse;
 import com.tracker.leetcode.tracker.DTO.RegisterRequest;
@@ -33,14 +32,15 @@ public class AuthenticationController {
     @PostMapping("/register")
     public ResponseEntity<AuthenticationResponse> register(@RequestBody RegisterRequest request,HttpServletResponse response){
 
-        AuthenticationResponse authenticationResponse = authenticationService.register(request);
-        setRefreshTokenCookie(response, authenticationResponse.refreshToken());
+        AuthenticationResponse authResponse = authenticationService.register(request);
+        setRefreshTokenCookie(response, authResponse.refreshToken());
 
         // Return everything EXCEPT the refresh token in the JSON body (it's in the cookie now!)
         return ResponseEntity.ok(AuthenticationResponse.builder()
-                .accessToken(authenticationResponse.accessToken())
-                .mentorId(authenticationResponse.mentorId())
-                .name(authenticationResponse.name())
+                .accessToken(authResponse.accessToken())
+                .mentorId(authResponse.mentorId())
+                .name(authResponse.name())
+                .role(authResponse.role()) // <-- FIXED: Added Role
                 .build());
     }
 
@@ -50,13 +50,15 @@ public class AuthenticationController {
             HttpServletResponse response) {
         AuthenticationResponse authResponse = authenticationService.authenticate(request);
         setRefreshTokenCookie(response,authResponse.refreshToken());
-        return ResponseEntity.ok(AuthenticationResponse
-                .builder()
+
+        return ResponseEntity.ok(AuthenticationResponse.builder()
                 .accessToken(authResponse.accessToken())
                 .mentorId(authResponse.mentorId())
                 .name(authResponse.name())
+                .role(authResponse.role()) // <-- FIXED: Added Role
                 .build());
     }
+
     // NEW: The Refresh Endpoint
     @PostMapping("/refresh")
     public ResponseEntity<AuthenticationResponse> refresh(
@@ -78,6 +80,7 @@ public class AuthenticationController {
                 .accessToken(authResponse.accessToken())
                 .mentorId(authResponse.mentorId())
                 .name(authResponse.name())
+                .role(authResponse.role()) // <-- FIXED: Added Role
                 .build());
     }
 
@@ -92,8 +95,6 @@ public class AuthenticationController {
         cookie.setMaxAge(0); // Deletes the cookie
         response.addCookie(cookie);
 
-        // Note: You should also call refreshTokenService.deleteByMentorId(...) here if you have the user context!
-
         return ResponseEntity.noContent().build();
     }
 
@@ -103,10 +104,12 @@ public class AuthenticationController {
             HttpServletResponse response){
         AuthenticationResponse authResponse = authenticationService.registerStudent(request);
         setRefreshTokenCookie(response, authResponse.refreshToken());
+
         return ResponseEntity.ok(AuthenticationResponse.builder()
                 .accessToken(authResponse.accessToken())
                 .mentorId(authResponse.mentorId())
                 .name(authResponse.name())
+                .role(authResponse.role()) // <-- FIXED: Added Role
                 .build());
     }
 }

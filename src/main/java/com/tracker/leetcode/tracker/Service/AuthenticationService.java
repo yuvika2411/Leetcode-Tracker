@@ -118,6 +118,7 @@ public class AuthenticationService {
                                 .refreshToken(requestRefreshToken)
                                 .mentorId(student.getId())
                                 .name(student.getName())
+                                .role(student.getRole()) // <-- ADDED ROLE HERE
                                 .build();
                     }
 
@@ -131,6 +132,7 @@ public class AuthenticationService {
                                 .refreshToken(requestRefreshToken)
                                 .mentorId(mentor.getId())
                                 .name(mentor.getName())
+                                .role(mentor.getRole()) // <-- ADDED ROLE HERE
                                 .build();
                     }
 
@@ -152,6 +154,7 @@ public class AuthenticationService {
                 .refreshToken(refreshToken.getToken())
                 .mentorId(student.getId())
                 .name(student.getName())
+                .role(student.getRole()) // <-- ADDED ROLE HERE
                 .build();
     }
 
@@ -166,6 +169,7 @@ public class AuthenticationService {
                 .refreshToken(refreshToken.getToken())
                 .mentorId(mentor.getId())
                 .name(mentor.getName())
+                .role(mentor.getRole()) // <-- ADDED ROLE HERE
                 .build();
     }
 }
