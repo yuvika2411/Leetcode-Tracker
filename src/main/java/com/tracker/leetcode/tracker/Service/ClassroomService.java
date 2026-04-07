@@ -14,7 +14,10 @@ import com.tracker.leetcode.tracker.Repository.StudentRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
@@ -228,5 +231,31 @@ public class ClassroomService {
         student.getManuallyCompletedAssignments().add(assignmentId);
         return studentRepository.save(student);
 
+    }
+
+
+    public List<String> bulkAddStudents(String classroomId, MultipartFile file) {
+        List<String> failedUsernames = new ArrayList<>();
+
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(file.getInputStream()))) {
+            String leetcodeUsername;
+            // Read the CSV line by line
+            while ((leetcodeUsername = reader.readLine()) != null) {
+                leetcodeUsername = leetcodeUsername.trim();
+                if (leetcodeUsername.isEmpty()) continue; // Skip empty lines
+
+                try {
+                    // Reuse your existing logic!
+                    addStudentToClassroom(classroomId, leetcodeUsername);
+                } catch (Exception e) {
+                    log.warn("Failed to bulk add student: {}", leetcodeUsername);
+                    failedUsernames.add(leetcodeUsername); // Keep track of who failed
+                }
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to parse CSV file.");
+        }
+
+        return failedUsernames; // Return the list of failures to the frontend so the mentor knows
     }
 }

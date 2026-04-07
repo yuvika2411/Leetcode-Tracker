@@ -5,11 +5,17 @@ import com.tracker.leetcode.tracker.DTO.SubmissionUrlRequest;
 import com.tracker.leetcode.tracker.Models.Assignment;
 import com.tracker.leetcode.tracker.Models.Classroom;
 import com.tracker.leetcode.tracker.Models.Student;
+import com.tracker.leetcode.tracker.Repository.ClassroomRepository;
+import com.tracker.leetcode.tracker.Repository.StudentRepository;
 import com.tracker.leetcode.tracker.Service.ClassroomService;
+import com.tracker.leetcode.tracker.Service.EmailService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.util.List;
 
 @Slf4j
 @RestController
@@ -19,6 +25,9 @@ import org.springframework.web.bind.annotation.*;
 public class ClassroomController {
 
     private final ClassroomService classroomService;
+    private final ClassroomRepository classroomRepository;
+    private final StudentRepository studentRepository;
+    private final EmailService emailService;
 
     // 1. Create a Classroom
     // URL Example: POST /api/classrooms?mentorId=65f1a2b...&className=Data%20Structures
@@ -79,5 +88,33 @@ public class ClassroomController {
             @RequestBody SubmissionUrlRequest request) {
 
         return ResponseEntity.ok(classroomService.validateManualSubmission(classroomId, username, assignmentId, request.getUrl()));
+    }
+
+    // Autowire EmailService and StudentRepository at the top of your controller
+    @PostMapping("/{classroomId}/students/{studentId}/nudge")
+    public ResponseEntity<?> nudgeStudent(
+            @PathVariable String classroomId,
+            @PathVariable String studentId,
+            @RequestParam String assignmentName) {
+
+        Classroom classroom = classroomRepository.findById(classroomId)
+                .orElseThrow(() -> new RuntimeException("Classroom not found"));
+        Student student = studentRepository.findById(studentId)
+                .orElseThrow(() -> new RuntimeException("Student not found"));
+
+        if (student.getEmail() != null) {
+            emailService.sendNudgeEmail(student.getEmail(), student.getName(), assignmentName, classroom.getClassName());
+            return ResponseEntity.ok().build();
+        }
+        return ResponseEntity.badRequest().body("Student does not have a valid email address.");
+    }
+
+    @PostMapping("/{classroomId}/students/bulk")
+    public ResponseEntity<List<String>> bulkAddStudents(
+            @PathVariable String classroomId,
+            @RequestParam("file") MultipartFile file) {
+
+        List<String> failedAdds = classroomService.bulkAddStudents(classroomId, file);
+        return ResponseEntity.ok(failedAdds);
     }
 }
