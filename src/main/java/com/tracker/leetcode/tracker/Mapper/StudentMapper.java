@@ -97,6 +97,8 @@ public class StudentMapper {
                 .socialMedia(student.getSocialMedia())
                 .badges(student.getBadges())
                 .contestHistory(student.getContestHistory())
+                .consistencyStreak(calculateStreak(student.getProgressHistory()))
+                .totalSolved(calculateTotalSolved(student.getProblemStats()))
 
                 // --- THE MISSING ARRAYS ---
                 .problemStats(student.getProblemStats())

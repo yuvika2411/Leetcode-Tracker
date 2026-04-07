@@ -24,4 +24,6 @@ public class StudentExtendedDTO {
     private String avatarUrl;
     private List<String> manuallyCompletedAssignments;
     private List<Classroom> classrooms;
+    private int consistencyStreak;
+    private int totalSolved;
 }

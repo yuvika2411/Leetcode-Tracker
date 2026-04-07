@@ -74,11 +74,21 @@ public class StudentController {
         return ResponseEntity.ok(mapper.toExtendedDTO(student));
     }
 
-    // 6. Sync ALL Data at once -> Returns Extended DTO (Best representation of a full profile)
+    // 6. Sync ALL Data at once -> Returns Extended DTO
     @PostMapping("/{username}/sync")
     public ResponseEntity<StudentExtendedDTO> syncAllData(@PathVariable String username) {
+        // Fetch fresh data from LeetCode
         Student student = studentService.syncAllProfileData(username);
-        return ResponseEntity.ok(mapper.toExtendedDTO(student));
+
+        // Build the DTO
+        StudentExtendedDTO dto = mapper.toExtendedDTO(student);
+
+        // <-- FIXED: Re-attach the classrooms before sending to React! -->
+        List<Classroom> myClassrooms = classroomRepository.findByStudentIdsContaining(student.getId());
+        dto.setClassrooms(myClassrooms);
+        dto.setManuallyCompletedAssignments(student.getManuallyCompletedAssignments());
+
+        return ResponseEntity.ok(dto);
     }
 
     // 7. Get All Students -> Returns a clean List of Summary DTOs
