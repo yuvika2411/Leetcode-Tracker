@@ -20,6 +20,7 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -234,6 +235,7 @@ public class ClassroomService {
     }
 
 
+    // 1. BULK IMPORT: Read CSV and add students
     public List<String> bulkAddStudents(String classroomId, MultipartFile file) {
         List<String> failedUsernames = new ArrayList<>();
 
@@ -242,20 +244,72 @@ public class ClassroomService {
             // Read the CSV line by line
             while ((leetcodeUsername = reader.readLine()) != null) {
                 leetcodeUsername = leetcodeUsername.trim();
-                if (leetcodeUsername.isEmpty()) continue; // Skip empty lines
+                // Skip empty lines or CSV header if it exists
+                if (leetcodeUsername.isEmpty() || leetcodeUsername.equalsIgnoreCase("username") || leetcodeUsername.equalsIgnoreCase("leetcode_username")) {
+                    continue;
+                }
 
                 try {
-                    // Reuse your existing logic!
+                    // FIXED: Changed to the correct method name!
                     addStudentToClassroom(classroomId, leetcodeUsername);
                 } catch (Exception e) {
                     log.warn("Failed to bulk add student: {}", leetcodeUsername);
-                    failedUsernames.add(leetcodeUsername); // Keep track of who failed
+                    failedUsernames.add(leetcodeUsername); // Track failures
                 }
             }
         } catch (Exception e) {
             throw new RuntimeException("Failed to parse CSV file.");
         }
 
-        return failedUsernames; // Return the list of failures to the frontend so the mentor knows
+        return failedUsernames;
+    }
+
+    // 2. EXPORT: Generate CSV string of the leaderboard
+    public String generateClassroomCsv(String classroomId) {
+        // Reuse your existing dashboard logic to get sorted, fully-calculated stats!
+        ClassroomDashboardDTO dashboard = getClassroomDashboard(classroomId, "solved");
+
+        StringBuilder csv = new StringBuilder();
+        // Add the standard CSV Header row
+        csv.append("Rank,Name,LeetCode Username,Daily Streak,Total Solved,Contest Rating,Done Assignments,Pending Assignments\n");
+
+        int rank = 1;
+        for (StudentSummaryDTO s : dashboard.getEnrolledStudents()) {
+            // FIXED: Removed the != null checks since int and double can never be null in Java
+            csv.append(rank++).append(",")
+                    .append("\"").append(s.getName()).append("\",")
+                    .append(s.getLeetcodeUsername()).append(",")
+                    .append(s.getConsistencyStreak()).append(",")
+                    .append(s.getTotalSolved()).append(",")
+                    .append(Math.round(s.getCurrentContestRating())).append(",")
+                    .append(s.getCompletedAssignments()).append(",")
+                    .append(s.getPendingAssignments()).append("\n");
+        }
+        return csv.toString();
+    }
+
+
+    public void assignQuestion(String classroomId, String titleSlug, long startTimestamp, long endTimestamp) {
+        // 1. Find the classroom
+        Classroom classroom = classroomRepository.findById(classroomId)
+                .orElseThrow(() -> new RuntimeException("Classroom not found with ID: " + classroomId));
+
+        // 2. Build the Assignment object
+        Assignment assignment = new Assignment();
+        assignment.setId(UUID.randomUUID().toString()); // Generate a unique ID for this specific homework
+        assignment.setTitleSlug(titleSlug);
+        assignment.setQuestionLink("https://leetcode.com/problems/" + titleSlug + "/");
+        assignment.setStartTimestamp(startTimestamp);
+        assignment.setEndTimestamp(endTimestamp);
+
+        // 3. Add it to the classroom's assignment list (initialize if null)
+        if (classroom.getAssignments() == null) {
+            classroom.setAssignments(new ArrayList<>());
+        }
+        classroom.getAssignments().add(assignment);
+
+        // 4. Save the updated classroom back to MongoDB
+        classroomRepository.save(classroom);
+        log.info("Successfully assigned {} to classroom {}", titleSlug, classroom.getClassName());
     }
 }
