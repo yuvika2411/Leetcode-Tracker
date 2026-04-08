@@ -39,12 +39,10 @@ public class ClassroomController {
         return ResponseEntity.ok(classroomService.createClassroom(mentorId, className));
     }
 
-    // 2. Add Student to Classroom
-    // URL Example: POST /api/classrooms/65f1a2c.../students/akshayur0404
-    @PostMapping("/{classroomId}/students/{leetcodeUsername}")
+    @PostMapping("/{classroomId}/students") // Removed the variable from path
     public ResponseEntity<Classroom> addStudentToClassroom(
             @PathVariable String classroomId,
-            @PathVariable String leetcodeUsername) {
+            @RequestParam String leetcodeUsername) { // Changed to @RequestParam
         return ResponseEntity.ok(classroomService.addStudentToClassroom(classroomId, leetcodeUsername));
     }
 
