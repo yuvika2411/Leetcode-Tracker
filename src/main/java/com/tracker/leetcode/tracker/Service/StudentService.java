@@ -59,6 +59,7 @@ public class StudentService {
         student.setBadges(extendedData.getBadges());
         student.setContestHistory(extendedData.getContestHistory());
         student.setAvatarUrl(extendedData.getAvatarUrl());
+        student.setSkills(leetCodeApiClient.fetchSkillStats(username));
 
         return studentRepository.save(student);
     }
@@ -71,6 +72,7 @@ public class StudentService {
         student.setProgressHistory(leetCodeApiClient.fetchCalendarData(username));
         student.setProblemStats(leetCodeApiClient.fetchProblemStats(username));
         student.setRecentSubmissions(leetCodeApiClient.fetchRecentSubmissions(username, 20));
+        student.setSkills(leetCodeApiClient.fetchSkillStats(username));
         student.setSkills(leetCodeApiClient.fetchSkillStats(username));
 
         Student extendedData = leetCodeApiClient.fetchExtendedProfileDetails(username);

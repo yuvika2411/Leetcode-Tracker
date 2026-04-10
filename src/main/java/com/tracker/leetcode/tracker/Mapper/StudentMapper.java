@@ -99,6 +99,7 @@ public class StudentMapper {
                 .contestHistory(student.getContestHistory())
                 .consistencyStreak(calculateStreak(student.getProgressHistory()))
                 .totalSolved(calculateTotalSolved(student.getProblemStats()))
+                .skills(student.getSkills())
 
                 // --- THE MISSING ARRAYS ---
                 .problemStats(student.getProblemStats())

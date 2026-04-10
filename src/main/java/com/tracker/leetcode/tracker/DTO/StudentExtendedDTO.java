@@ -26,4 +26,5 @@ public class StudentExtendedDTO {
     private List<Classroom> classrooms;
     private int consistencyStreak;
     private int totalSolved;
+    private List<SkillStat> skills;
 }

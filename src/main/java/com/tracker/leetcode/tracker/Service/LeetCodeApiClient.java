@@ -250,6 +250,7 @@ public class LeetCodeApiClient {
 
     // 6. Fetch Skill Stats (Topic Tags)
     public List<SkillStat> fetchSkillStats(String username) {
+        // LeetCode's exact GraphQL query to get problems solved by topic tag
         String query = """
                 {"query":"query skillStats($username: String!) { matchedUser(username: $username) { tagProblemCounts { advanced { tagName problemsSolved } intermediate { tagName problemsSolved } fundamental { tagName problemsSolved } } } }","variables":{"username":"%s"}}
                 """.formatted(username);
@@ -258,11 +259,13 @@ public class LeetCodeApiClient {
         JsonNode tagCounts = root.path("data").path("matchedUser").path("tagProblemCounts");
 
         List<SkillStat> skills = new ArrayList<>();
+
+        // If the user has a hidden profile or hasn't solved anything, return empty list
         if (tagCounts.isMissingNode() || tagCounts.isNull()) {
             return skills;
         }
 
-        // Helper to parse the 3 difficulty arrays
+        // LeetCode splits tags into 3 difficulty tiers. We will combine them all.
         String[] levels = {"fundamental", "intermediate", "advanced"};
         for (String level : levels) {
             JsonNode levelNode = tagCounts.path(level);
