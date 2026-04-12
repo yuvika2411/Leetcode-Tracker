@@ -48,7 +48,7 @@ public class StudentMapper {
             }
         }
 
-        //
+
         return StudentSummaryDTO.builder()
                 .id(student.getId())
                 .name(student.getName())
