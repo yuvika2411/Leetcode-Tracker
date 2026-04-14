@@ -26,22 +26,28 @@ public class AdminService {
     public SystemOverviewDTO getSystemOverview(){
         log.info("Super Admin requested the master system overview.");
 
-        long totalStudents = studentRepository.count();
-        long totalMentors = mentorRepository.count();
-        long totalClassrooms = classroomRepository.count();
+        try {
+            long totalStudents = studentRepository.count();
+            long totalMentors = mentorRepository.count();
+            long totalClassrooms = classroomRepository.count();
 
-        List<MentorDTO> mentorDTOS = mentorService.getAllMentors();
-        List<ClassroomDashboardDTO> classroomDashboardDTOS = classroomRepository.findAll()
-                .stream()
-                .map(classroom -> classroomService.getClassroomDashboard(classroom.getId(),"name"))
-                .toList();
-        return SystemOverviewDTO
-                .builder()
-                .totalStudents(totalStudents)
-                .totalMentors(totalMentors)
-                .totalClassrooms(totalClassrooms)
-                .allMentors(mentorDTOS)
-                .allClassrooms(classroomDashboardDTOS)
-                .build();
+            List<MentorDTO> mentorDTOS = mentorService.getAllMentors();
+            List<ClassroomDashboardDTO> classroomDashboardDTOS = classroomRepository.findAll()
+                    .stream()
+                    .map(classroom -> classroomService.getClassroomDashboard(classroom.getId(), "name"))
+                    .toList();
+
+            return SystemOverviewDTO
+                    .builder()
+                    .totalStudents(totalStudents)
+                    .totalMentors(totalMentors)
+                    .totalClassrooms(totalClassrooms)
+                    .allMentors(mentorDTOS)
+                    .allClassrooms(classroomDashboardDTOS)
+                    .build();
+        } catch (Exception e) {
+            log.error("Failed to generate system overview: {}", e.getMessage());
+            throw new RuntimeException("Failed to generate system overview. Please try again later.");
+        }
     }
 }

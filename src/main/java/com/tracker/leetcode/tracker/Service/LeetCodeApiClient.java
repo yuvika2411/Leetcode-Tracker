@@ -2,7 +2,11 @@ package com.tracker.leetcode.tracker.Service;
 
 import com.tracker.leetcode.tracker.Exception.LeetCodeApiException;
 import com.tracker.leetcode.tracker.Models.*;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
+import io.github.resilience4j.retry.annotation.Retry;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -19,6 +23,7 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @Component // Tells Spring to manage this class as a reusable tool
@@ -28,25 +33,67 @@ public class LeetCodeApiClient {
     private final RestTemplate restTemplate = new RestTemplate();
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final HttpHeaders headers;
+    private final RedisTemplate<String, Object> redisTemplate;
 
-    public LeetCodeApiClient() {
+    public LeetCodeApiClient(RedisTemplate<String, Object> redisTemplate) {
+        this.redisTemplate = redisTemplate;
         headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
     }
 
 
     private JsonNode executeGraphQLQuery(String query, String username) {
-        HttpEntity<String> request = new HttpEntity<>(query, headers);
         try {
+            HttpEntity<String> request = new HttpEntity<>(query, headers);
             ResponseEntity<String> response = restTemplate.postForEntity(LEETCODE_API_URL, request, String.class);
+
+            if (response.getBody() == null) {
+                throw new LeetCodeApiException("Empty response from LeetCode API for user: " + username);
+            }
+
             return objectMapper.readTree(response.getBody());
+        } catch (LeetCodeApiException e) {
+            throw e;
         } catch (Exception e) {
             log.error("Network or JSON parsing error for user {}: {}", username, e.getMessage());
             throw new LeetCodeApiException("Failed to communicate with LeetCode servers for user: " + username);
         }
     }
 
+    /**
+     * Save data to Redis cache for fallback use when circuit breaker opens
+     * TTL: 7 days to preserve stale data
+     */
+    private void cacheDataForFallback(String key, Object data) {
+        try {
+            redisTemplate.opsForValue().set(key, data, 7, TimeUnit.DAYS);
+            log.debug("Data cached in Redis for fallback: {}", key);
+        } catch (Exception e) {
+            log.warn("Failed to cache data for fallback: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Retrieve fallback data from Redis cache
+     * Used when circuit breaker is OPEN to serve stale data
+     */
+    private <T> T getFallbackDataFromCache(String key, Class<T> type) {
+        try {
+            Object cached = redisTemplate.opsForValue().get(key);
+            if (cached != null) {
+                log.info("Using fallback data from Redis cache: {}", key);
+                return (T) cached;
+            }
+        } catch (Exception e) {
+            log.warn("Failed to retrieve fallback data from cache: {}", e.getMessage());
+        }
+        return null;
+    }
+
     // 1. Fetch Calendar Heatmap Data
+    @CircuitBreaker(name = "leetcodeApi", fallbackMethod = "fetchCalendarDataFallback")
+    @Retry(name = "leetcodeApi")
+    @RateLimiter(name = "leetcodeApi")
     public List<DailyProgress> fetchCalendarData(String username) {
         String query = """
                 {"query":"query userProfileCalendar($username: String!) { matchedUser(username: $username) { userCalendar { submissionCalendar } } }","variables":{"username":"%s"}}
@@ -67,6 +114,9 @@ public class LeetCodeApiClient {
                 LocalDate date = Instant.ofEpochSecond(Long.parseLong(entry.getKey())).atZone(ZoneId.systemDefault()).toLocalDate();
                 progressList.add(new DailyProgress(date, entry.getValue()));
             }
+
+            // Cache for fallback
+            cacheDataForFallback("leetcode:calendar:" + username, progressList);
             return progressList;
         } catch (Exception e) {
             log.error("Failed to map Calendar data for {}: {}", username, e.getMessage());
@@ -74,7 +124,23 @@ public class LeetCodeApiClient {
         }
     }
 
+    /**
+     * Fallback method when circuit is OPEN - serves stale data from Redis
+     */
+    public List<DailyProgress> fetchCalendarDataFallback(String username, Exception ex) {
+        log.warn("Circuit breaker OPEN for calendar data of {}. Serving stale data from cache. Error: {}",
+                username, ex.getMessage());
+        List<DailyProgress> cached = getFallbackDataFromCache("leetcode:calendar:" + username, List.class);
+        if (cached != null) {
+            return cached;
+        }
+        throw new LeetCodeApiException("LeetCode API is temporarily unavailable and no cached data exists for user: " + username);
+    }
+
     // 2. Fetch Problem Stats Data
+    @CircuitBreaker(name = "leetcodeApi", fallbackMethod = "fetchProblemStatsFallback")
+    @Retry(name = "leetcodeApi")
+    @RateLimiter(name = "leetcodeApi")
     public List<ProblemStats> fetchProblemStats(String username) {
         String query = """
                 {"query":"query userProblemsSolved($username: String!) { allQuestionsCount { difficulty count } matchedUser(username: $username) { problemsSolvedBeatsStats { difficulty percentage } submitStatsGlobal { acSubmissionNum { difficulty count } } } }","variables":{"username":"%s"}}
@@ -91,13 +157,13 @@ public class LeetCodeApiClient {
         JsonNode beatsStats = matchedUser.path("problemsSolvedBeatsStats");
         List<ProblemStats> statsList = new ArrayList<>();
 
-        if (submissionStats.isArray()) {
+        if (submissionStats != null && submissionStats.isArray()) {
             for (JsonNode statNode : submissionStats) {
                 String difficulty = statNode.path("difficulty").asString();
                 int count = statNode.path("count").asInt();
                 double percentage = 0.0;
 
-                if (beatsStats.isArray()) {
+                if (beatsStats != null && beatsStats.isArray()) {
                     for (JsonNode beatNode : beatsStats) {
                         if (beatNode.path("difficulty").asString().equals(difficulty) && !beatNode.path("percentage").isNull()) {
                             percentage = beatNode.path("percentage").asDouble();
@@ -108,10 +174,29 @@ public class LeetCodeApiClient {
                 statsList.add(new ProblemStats(difficulty, count, percentage));
             }
         }
+
+        // Cache for fallback
+        cacheDataForFallback("leetcode:stats:" + username, statsList);
         return statsList;
     }
 
+    /**
+     * Fallback method when circuit is OPEN - serves stale stats from Redis
+     */
+    public List<ProblemStats> fetchProblemStatsFallback(String username, Exception ex) {
+        log.warn("Circuit breaker OPEN for stats of {}. Serving stale data from cache. Error: {}",
+                username, ex.getMessage());
+        List<ProblemStats> cached = getFallbackDataFromCache("leetcode:stats:" + username, List.class);
+        if (cached != null) {
+            return cached;
+        }
+        throw new LeetCodeApiException("LeetCode API is temporarily unavailable and no cached data exists for user: " + username);
+    }
+
     // 3. Fetch Recent Submissions Data
+    @CircuitBreaker(name = "leetcodeApi", fallbackMethod = "fetchRecentSubmissionsFallback")
+    @Retry(name = "leetcodeApi")
+    @RateLimiter(name = "leetcodeApi")
     public List<RecentSubmission> fetchRecentSubmissions(String username, int limit) {
         String query = """
                 {"query":"query recentAcSubmissions($username: String!, $limit: Int!) { recentAcSubmissionList(username: $username, limit: $limit) { id title titleSlug timestamp } }","variables":{"username":"%s","limit":%d}}
@@ -121,22 +206,47 @@ public class LeetCodeApiClient {
         JsonNode submissionList = root.path("data").path("recentAcSubmissionList");
 
         if (submissionList.isMissingNode() || submissionList.isNull()) {
-            throw new LeetCodeApiException("LeetCode returned no recent submissions for user: " + username);
+            log.warn("LeetCode returned no recent submissions for user: {}", username);
+            return new ArrayList<>();
         }
 
         List<RecentSubmission> recentList = new ArrayList<>();
         if (submissionList.isArray()) {
             for (JsonNode node : submissionList) {
-                String title = node.path("title").asString();
-                String titleSlug = node.path("titleSlug").asString();
-                long timestamp = Long.parseLong(node.path("timestamp").asString());
-                recentList.add(new RecentSubmission(title, titleSlug, timestamp));
+                try {
+                    String title = node.path("title").asString();
+                    String titleSlug = node.path("titleSlug").asString();
+                    long timestamp = Long.parseLong(node.path("timestamp").asString());
+                    recentList.add(new RecentSubmission(title, titleSlug, timestamp));
+                } catch (Exception e) {
+                    log.warn("Failed to parse recent submission entry for user {}: {}", username, e.getMessage());
+                    // Continue parsing remaining entries
+                }
             }
         }
+
+        // Cache for fallback
+        cacheDataForFallback("leetcode:recent:" + username, recentList);
         return recentList;
     }
 
+    /**
+     * Fallback method when circuit is OPEN - serves stale submissions from Redis
+     */
+    public List<RecentSubmission> fetchRecentSubmissionsFallback(String username, int limit, Exception ex) {
+        log.warn("Circuit breaker OPEN for recent submissions of {}. Serving stale data from cache. Error: {}",
+                username, ex.getMessage());
+        List<RecentSubmission> cached = getFallbackDataFromCache("leetcode:recent:" + username, List.class);
+        if (cached != null) {
+            return cached;
+        }
+        throw new LeetCodeApiException("LeetCode API is temporarily unavailable and no cached data exists for user: " + username);
+    }
+
     // 4. Fetch Extended Profile (Badges, Socials, Contests, Rank, About, AVATAR)
+    @CircuitBreaker(name = "leetcodeApi", fallbackMethod = "fetchExtendedProfileDetailsFallback")
+    @Retry(name = "leetcodeApi")
+    @RateLimiter(name = "leetcodeApi")
     public Student fetchExtendedProfileDetails(String username) {
         // ADDED 'userAvatar' TO THE GRAPHQL QUERY
         String query = """
@@ -174,13 +284,17 @@ public class LeetCodeApiClient {
         // 2. Parse Badges
         List<Badge> badgeList = new ArrayList<>();
         JsonNode badgesNode = matchedUser.path("badges");
-        if (badgesNode.isArray()) {
+        if (badgesNode != null && badgesNode.isArray()) {
             for (JsonNode b : badgesNode) {
-                badgeList.add(new Badge(
-                        b.path("name").asString(),
-                        b.path("icon").asString(),
-                        b.path("creationDate").asString()
-                ));
+                try {
+                    badgeList.add(new Badge(
+                            b.path("name").asString(),
+                            b.path("icon").asString(),
+                            b.path("creationDate").asString()
+                    ));
+                } catch (Exception e) {
+                    log.warn("Failed to parse badge for user {}: {}", username, e.getMessage());
+                }
             }
         }
         extendedData.setBadges(badgeList);
@@ -188,28 +302,50 @@ public class LeetCodeApiClient {
         // 3. Parse Contest History
         List<ContestHistory> historyList = new ArrayList<>();
         JsonNode historyNode = data.path("userContestRankingHistory");
-        if (historyNode.isArray()) {
+        if (historyNode != null && historyNode.isArray()) {
             for (JsonNode c : historyNode) {
-                if (c.path("attended").asBoolean()) {
-                    JsonNode contestMeta = c.path("contest");
-                    historyList.add(new ContestHistory(
-                            contestMeta.path("title").asString(),
-                            contestMeta.path("startTime").asLong(),
-                            c.path("rating").asDouble(),
-                            c.path("ranking").asInt(),
-                            c.path("problemsSolved").asInt(),
-                            c.path("totalProblems").asInt()
-                    ));
+                try {
+                    if (c.path("attended").asBoolean()) {
+                        JsonNode contestMeta = c.path("contest");
+                        historyList.add(new ContestHistory(
+                                contestMeta.path("title").asString(),
+                                contestMeta.path("startTime").asLong(),
+                                c.path("rating").asDouble(),
+                                c.path("ranking").asInt(),
+                                c.path("problemsSolved").asInt(),
+                                c.path("totalProblems").asInt()
+                        ));
+                    }
+                } catch (Exception e) {
+                    log.warn("Failed to parse contest history entry for user {}: {}", username, e.getMessage());
                 }
             }
         }
         extendedData.setContestHistory(historyList);
 
+        // Cache for fallback
+        cacheDataForFallback("leetcode:profile:" + username, extendedData);
         return extendedData;
+    }
+
+    /**
+     * Fallback method when circuit is OPEN - serves stale profile from Redis
+     */
+    public Student fetchExtendedProfileDetailsFallback(String username, Exception ex) {
+        log.warn("Circuit breaker OPEN for extended profile of {}. Serving stale data from cache. Error: {}",
+                username, ex.getMessage());
+        Student cached = getFallbackDataFromCache("leetcode:profile:" + username, Student.class);
+        if (cached != null) {
+            return cached;
+        }
+        throw new LeetCodeApiException("LeetCode API is temporarily unavailable and no cached data exists for user: " + username);
     }
 
     // 5. Verify Manual Submission URL (Bypassing Privacy Block)
 
+    @CircuitBreaker(name = "leetcodeApi", fallbackMethod = "verifySubmissionFallback")
+    @Retry(name = "leetcodeApi")
+    @RateLimiter(name = "leetcodeApi")
     public boolean verifySubmission(String submissionId, String expectedUsername, String expectedTitleSlug) {
 
         // Instead of querying the protected submissionDetails, we query the public recentAcSubmissionList
@@ -248,7 +384,20 @@ public class LeetCodeApiClient {
         }
     }
 
+    /**
+     * Fallback for submission verification - returns false to deny verification during API outage
+     */
+    public boolean verifySubmissionFallback(String submissionId, String expectedUsername, String expectedTitleSlug, Exception ex) {
+        log.warn("Circuit breaker OPEN for submission verification of {}. Denying verification during outage. Error: {}",
+                expectedUsername, ex.getMessage());
+        // During API outage, we cannot verify submissions, so return false (deny)
+        return false;
+    }
+
     // 6. Fetch Skill Stats (Topic Tags)
+    @CircuitBreaker(name = "leetcodeApi", fallbackMethod = "fetchSkillStatsFallback")
+    @Retry(name = "leetcodeApi")
+    @RateLimiter(name = "leetcodeApi")
     public List<SkillStat> fetchSkillStats(String username) {
         // LeetCode's exact GraphQL query to get problems solved by topic tag
         String query = """
@@ -262,6 +411,7 @@ public class LeetCodeApiClient {
 
         // If the user has a hidden profile or hasn't solved anything, return empty list
         if (tagCounts.isMissingNode() || tagCounts.isNull()) {
+            log.debug("No skill data available for user: {}", username);
             return skills;
         }
 
@@ -269,15 +419,37 @@ public class LeetCodeApiClient {
         String[] levels = {"fundamental", "intermediate", "advanced"};
         for (String level : levels) {
             JsonNode levelNode = tagCounts.path(level);
-            if (levelNode.isArray()) {
+            if (levelNode != null && levelNode.isArray()) {
                 for (JsonNode tag : levelNode) {
-                    skills.add(new SkillStat(
-                            tag.path("tagName").asString(),
-                            tag.path("problemsSolved").asInt()
-                    ));
+                    try {
+                        skills.add(new SkillStat(
+                                tag.path("tagName").asString(),
+                                tag.path("problemsSolved").asInt()
+                        ));
+                    } catch (Exception e) {
+                        log.warn("Failed to parse skill stat for level {} and user {}: {}", level, username, e.getMessage());
+                    }
                 }
             }
         }
+
+        // Cache for fallback
+        cacheDataForFallback("leetcode:skills:" + username, skills);
         return skills;
+    }
+
+    /**
+     * Fallback method when circuit is OPEN - serves stale skills from Redis
+     */
+    public List<SkillStat> fetchSkillStatsFallback(String username, Exception ex) {
+        log.warn("Circuit breaker OPEN for skill stats of {}. Serving stale data from cache. Error: {}",
+                username, ex.getMessage());
+        List<SkillStat> cached = getFallbackDataFromCache("leetcode:skills:" + username, List.class);
+        if (cached != null) {
+            return cached;
+        }
+        // Return empty list instead of throwing exception - skills are not critical
+        log.info("No cached skill data available, returning empty list for: {}", username);
+        return new ArrayList<>();
     }
 }

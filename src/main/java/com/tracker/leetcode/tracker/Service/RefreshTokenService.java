@@ -1,5 +1,6 @@
 package com.tracker.leetcode.tracker.Service;
 
+import com.tracker.leetcode.tracker.Exception.RefreshTokenException;
 import com.tracker.leetcode.tracker.Models.RefreshToken;
 import com.tracker.leetcode.tracker.Repository.RefreshTokenRepository;
 import lombok.RequiredArgsConstructor;
@@ -31,10 +32,10 @@ public class RefreshTokenService {
     public RefreshToken verifyExpiration(RefreshToken token){
         if (token.getExpiryDate().compareTo(Instant.now()) < 0){
             refreshTokenRepository.delete(token);
-            throw new RuntimeException("Refresh token was expired. Please make new sign in request");
+            throw new RefreshTokenException("Refresh token was expired. Please make new sign in request");
         }
         if (token.isRevoked()){
-            throw new RuntimeException("Refresh token has been revoked.");
+            throw new RefreshTokenException("Refresh token has been revoked.");
         }
         return token;
     }

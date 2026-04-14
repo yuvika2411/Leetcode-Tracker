@@ -5,6 +5,7 @@ import com.tracker.leetcode.tracker.DTO.AuthenticationResponse;
 import com.tracker.leetcode.tracker.DTO.RegisterRequest;
 import com.tracker.leetcode.tracker.DTO.StudentRegisterRequest;
 import com.tracker.leetcode.tracker.Exception.DuplicateMentorException;
+import com.tracker.leetcode.tracker.Exception.UserAuthenticationException;
 import com.tracker.leetcode.tracker.Models.*;
 import com.tracker.leetcode.tracker.Repository.MentorRepository;
 import com.tracker.leetcode.tracker.Repository.StudentRepository;
@@ -51,7 +52,7 @@ public class AuthenticationService {
     public AuthenticationResponse registerStudent(StudentRegisterRequest request){
         log.info("Registering new student: {}", request.email());
         if (studentRepository.findByEmail(request.email()).isPresent()){
-            throw new RuntimeException("Student email already in use.");
+            throw new DuplicateMentorException("Student email already in use.");
         }
         Student student = new Student();
         student.setName(request.name());
@@ -78,12 +79,17 @@ public class AuthenticationService {
 
     public AuthenticationResponse authenticate(AuthenticationRequest request) {
         // 1. Check passwords via Spring Security
-        authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(
-                        request.email(),
-                        request.password()
-                )
-        );
+        try {
+            authenticationManager.authenticate(
+                    new UsernamePasswordAuthenticationToken(
+                            request.email(),
+                            request.password()
+                    )
+            );
+        } catch (Exception e) {
+            log.error("Authentication failed for user: {}", request.email());
+            throw new UserAuthenticationException("Invalid email or password");
+        }
 
         // 2. Are they a Student?
         var studentOpt = studentRepository.findByEmail(request.email());
@@ -97,7 +103,7 @@ public class AuthenticationService {
             return generateAuthResponseForMentor(mentorOpt.get());
         }
 
-        throw new RuntimeException("User not found after successful authentication");
+        throw new UserAuthenticationException("User not found after successful authentication");
     }
 
     // 3. REFRESH TOKEN LOGIC
@@ -136,9 +142,9 @@ public class AuthenticationService {
                                 .build();
                     }
 
-                    throw new RuntimeException("User not found during refresh");
+                    throw new UserAuthenticationException("User not found during refresh");
                 })
-                .orElseThrow(() -> new RuntimeException("Refresh token is not in database!"));
+                .orElseThrow(() -> new UserAuthenticationException("Refresh token is not in database!"));
     }
 
     // 4. DRY HELPER METHODS

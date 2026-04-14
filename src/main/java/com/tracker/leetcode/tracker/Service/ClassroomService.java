@@ -136,26 +136,40 @@ public class ClassroomService {
         Classroom classroom = classroomRepository.findById(classroomId)
                 .orElseThrow(() -> new ClassroomNotFoundException("Classroom not found with ID: " + classroomId));
 
-        // --- THE FIX: Ensure ID and questionLink are explicitly set before saving ---
+        // --- Ensure ID and questionLink are explicitly set before saving ---
         if (assignment.getId() == null) {
-            assignment.setId(java.util.UUID.randomUUID().toString());
+            assignment.setId(UUID.randomUUID().toString());
         }
 
         if (assignment.getQuestionLink() == null && assignment.getTitleSlug() != null) {
             assignment.setQuestionLink("https://leetcode.com/problems/" + assignment.getTitleSlug() + "/");
         }
 
-        // Defensive programming: just in case assignments array is null in the DB
-        if (classroom.getAssignments() == null) {
-            classroom.setAssignments(new ArrayList<>());
-        }
+        // Defensive programming: initialize assignments array if null
+        initializeAssignmentsIfNull(classroom);
 
         classroom.getAssignments().add(assignment);
         return classroomRepository.save(classroom);
     }
 
-    public Student validateManualSubmission(String classroomId,String leetcodeUsername,String assignmentId,String submissionUrl){
+    // Helper method to extract submission ID from URL
+    private String extractSubmissionIdFromUrl(String submissionUrl) {
+        Pattern pattern = Pattern.compile("submissions/(?:detail/)?(\\d+)");
+        Matcher matcher = pattern.matcher(submissionUrl);
+        if (!matcher.find()) {
+            throw new ValidationFailedException("Invalid LeetCode URL. It must contain the submission ID.");
+        }
+        return matcher.group(1);
+    }
 
+    // Helper method to initialize assignments list if null
+    private void initializeAssignmentsIfNull(Classroom classroom) {
+        if (classroom.getAssignments() == null) {
+            classroom.setAssignments(new ArrayList<>());
+        }
+    }
+
+    public Student validateManualSubmission(String classroomId, String leetcodeUsername, String assignmentId, String submissionUrl) {
         log.info("Validating manual submission for {} on assignment {}", leetcodeUsername, assignmentId);
 
         Classroom classroom = classroomRepository.findById(classroomId)
@@ -166,42 +180,35 @@ public class ClassroomService {
                 .findFirst()
                 .orElseThrow(() -> new AssignmentNotFoundException("Assignment not found in this classroom."));
 
-
         Student student = studentRepository.findByLeetcodeUsername(leetcodeUsername)
                 .orElseThrow(() -> new StudentNotFoundException("Student not found."));
 
         // If they already validated it, skip the network call and return
         if (student.getManuallyCompletedAssignments().contains(assignmentId)) {
+            log.info("Assignment {} already validated for {}", assignmentId, leetcodeUsername);
             return student;
         }
 
-        Pattern pattern = Pattern.compile("submissions/(?:detail/)?(\\d+)");
-        Matcher matcher = pattern.matcher(submissionUrl);
-        if (!matcher.find()){
-            throw  new ValidationFailedException("Invalid LeetCode URL. It must contain the submission ID.");
-        }
+        String submissionId = extractSubmissionIdFromUrl(submissionUrl);
 
-        String submissionId = matcher.group(1);
-
-        boolean isValid = leetCodeApiClient.verifySubmission(submissionId,leetcodeUsername,assignment.getTitleSlug());
+        boolean isValid = leetCodeApiClient.verifySubmission(submissionId, leetcodeUsername, assignment.getTitleSlug());
 
         if (!isValid) {
             throw new ValidationFailedException("Validation Failed! Ensure the submission is 'Accepted', belongs to you, and is the correct problem.");
         }
 
-        // 5. Success! Permanently save it to the student's profile
+        // Success! Permanently save it to the student's profile
         student.getManuallyCompletedAssignments().add(assignmentId);
         return studentRepository.save(student);
-
     }
 
-    public Student validateSubmissionAsStudent(Student student,String classroomId,String assignmentId,String submissionUrl){
-
-        log.info("Student {} is self-validating assignment {}",student.getLeetcodeUsername(),assignmentId);
+    public Student validateSubmissionAsStudent(Student student, String classroomId, String assignmentId, String submissionUrl) {
+        log.info("Student {} is self-validating assignment {}", student.getLeetcodeUsername(), assignmentId);
 
         Classroom classroom = classroomRepository.findById(classroomId)
                 .orElseThrow(() -> new ClassroomNotFoundException("Classroom not Found."));
-        if (!classroom.getStudentIds().contains(student.getId())){
+
+        if (!classroom.getStudentIds().contains(student.getId())) {
             throw new RuntimeException("Security Exception: You are not enrolled in this classroom.");
         }
 
@@ -210,30 +217,22 @@ public class ClassroomService {
                 .findFirst()
                 .orElseThrow(() -> new AssignmentNotFoundException("Assignment not found in this classroom."));
 
-
         // If they already validated it, skip the network call
-        if (student.getManuallyCompletedAssignments().contains(assignmentId)){
+        if (student.getManuallyCompletedAssignments().contains(assignmentId)) {
+            log.info("Assignment {} already validated for {}", assignmentId, student.getLeetcodeUsername());
             return student;
         }
 
-        // 3. Extract the Submission ID from the URL using Regex
-        Pattern pattern = Pattern.compile("submissions/(?:detail/)?(\\d+)");
-        Matcher matcher = pattern.matcher(submissionUrl);
+        String submissionId = extractSubmissionIdFromUrl(submissionUrl);
 
-        if (!matcher.find()) {
-            throw new ValidationFailedException("Invalid LeetCode URL. It must contain the submission ID.");
-        }
-
-        String submissionId = matcher.group(1);
-
-        // 4. Verify with LeetCode API (using the student's exact username)
+        // Verify with LeetCode API (using the student's exact username)
         boolean isValid = leetCodeApiClient.verifySubmission(submissionId, student.getLeetcodeUsername(), assignment.getTitleSlug());
 
         if (!isValid) {
             throw new ValidationFailedException("Validation Failed! Ensure the submission is 'Accepted', belongs to you, and is the correct problem.");
         }
 
-        // 5. Success! Save it to the student's profile
+        // Success! Save it to the student's profile
         student.getManuallyCompletedAssignments().add(assignmentId);
         return studentRepository.save(student);
 
@@ -296,9 +295,12 @@ public class ClassroomService {
 
 
     public void assignQuestion(String classroomId, String titleSlug, long startTimestamp, long endTimestamp) {
+        log.info("Assigning question {} to classroom ID: {} with deadline from {} to {}",
+                titleSlug, classroomId, startTimestamp, endTimestamp);
+
         // 1. Find the classroom
         Classroom classroom = classroomRepository.findById(classroomId)
-                .orElseThrow(() -> new RuntimeException("Classroom not found with ID: " + classroomId));
+                .orElseThrow(() -> new ClassroomNotFoundException("Classroom not found with ID: " + classroomId));
 
         // 2. Build the Assignment object
         Assignment assignment = new Assignment();
@@ -309,9 +311,7 @@ public class ClassroomService {
         assignment.setEndTimestamp(endTimestamp);
 
         // 3. Add it to the classroom's assignment list (initialize if null)
-        if (classroom.getAssignments() == null) {
-            classroom.setAssignments(new ArrayList<>());
-        }
+        initializeAssignmentsIfNull(classroom);
         classroom.getAssignments().add(assignment);
 
         // 4. Save the updated classroom back to MongoDB

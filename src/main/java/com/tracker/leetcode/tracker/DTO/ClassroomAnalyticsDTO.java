@@ -1,12 +1,17 @@
 package com.tracker.leetcode.tracker.DTO;
 
 import com.tracker.leetcode.tracker.Models.SkillStat;
+import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
+
 import java.util.List;
 
 @Data
 @Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class ClassroomAnalyticsDTO {
     private String classroomId;
     private String className;

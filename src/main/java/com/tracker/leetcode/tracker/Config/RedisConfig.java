@@ -1,22 +1,19 @@
 package com.tracker.leetcode.tracker.Config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.jsontype.BasicPolymorphicTypeValidator;
+import com.fasterxml.jackson.databind.jsontype.PolymorphicTypeValidator;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.cache.RedisCacheConfiguration;
 import org.springframework.data.redis.cache.RedisCacheManager;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.serializer.RedisSerializationContext;
 import org.springframework.data.redis.serializer.RedisSerializer;
 import org.springframework.data.redis.serializer.SerializationException;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
-
-// STRICTLY Jackson 3 Imports (Removed the problematic annotation import)
-import tools.jackson.databind.DefaultTyping;
-import tools.jackson.databind.ObjectMapper;
-import tools.jackson.databind.json.JsonMapper;
-import tools.jackson.databind.jsontype.BasicPolymorphicTypeValidator;
-import tools.jackson.databind.jsontype.PolymorphicTypeValidator;
-import tools.jackson.datatype.jsr310.JavaTimeModule;
 
 import java.time.Duration;
 import java.util.HashMap;
@@ -27,26 +24,26 @@ public class RedisConfig {
 
     @Bean
     public ObjectMapper redisObjectMapper() {
-        // JACKSON 3 API: You must use the Builder pattern to construct the immutable mapper
+        // Jackson 2 API: Standard ObjectMapper with JSR310 support for Java 8+ date/time
+        ObjectMapper mapper = new ObjectMapper();
+        mapper.registerModule(new JavaTimeModule()); // Handles Dates and Instants safely
+
+        // Enable default typing for polymorphic type handling
         PolymorphicTypeValidator ptv = BasicPolymorphicTypeValidator.builder()
                 .allowIfBaseType(Object.class)
                 .build();
+        mapper.activateDefaultTyping(ptv, com.fasterxml.jackson.databind.ObjectMapper.DefaultTyping.NON_FINAL);
 
-        return JsonMapper.builder()
-                .addModule(new JavaTimeModule()) // Handles Dates and Instants safely
-                // NEW: Jackson 3 allows us to drop JsonTypeInfo completely for standard polymorphic typing!
-                .activateDefaultTyping(ptv, DefaultTyping.NON_FINAL)
-                .build();
+        return mapper;
     }
 
     /**
-     * Custom Adapter: Bridges Spring Data Redis with Jackson 3 (tools.jackson)
-     * This entirely bypasses Spring's hardcoded Jackson 2 requirement.
+     * Custom Adapter: Bridges Spring Data Redis with Jackson 2
      */
-    public static class Jackson3RedisSerializer implements RedisSerializer<Object> {
+    public static class Jackson2RedisSerializer implements RedisSerializer<Object> {
         private final ObjectMapper mapper;
 
-        public Jackson3RedisSerializer(ObjectMapper mapper) {
+        public Jackson2RedisSerializer(ObjectMapper mapper) {
             this.mapper = mapper;
         }
 
@@ -79,7 +76,7 @@ public class RedisConfig {
                 .entryTtl(Duration.ofMinutes(10))
                 .serializeKeysWith(RedisSerializationContext.SerializationPair.fromSerializer(new StringRedisSerializer()))
                 .serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(
-                        new Jackson3RedisSerializer(redisObjectMapper) // <-- Using our custom Jackson 3 Serializer!
+                        new Jackson2RedisSerializer(redisObjectMapper) // <-- Using our custom Jackson 2 Serializer!
                 ));
 
         // Define TTL configurations for specific caches
@@ -104,5 +101,24 @@ public class RedisConfig {
                 .cacheDefaults(defaultCacheConfig)
                 .withInitialCacheConfigurations(cacheConfigurations)
                 .build();
+    }
+
+    @Bean
+    public RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory connectionFactory, ObjectMapper redisObjectMapper) {
+        RedisTemplate<String, Object> template = new RedisTemplate<>();
+        template.setConnectionFactory(connectionFactory);
+
+        // 1. Serialize Keys as plain Strings
+        StringRedisSerializer stringSerializer = new StringRedisSerializer();
+        template.setKeySerializer(stringSerializer);
+        template.setHashKeySerializer(stringSerializer);
+
+        // 2. Serialize Values using your custom Jackson 2 Serializer
+        Jackson2RedisSerializer valueSerializer = new Jackson2RedisSerializer(redisObjectMapper);
+        template.setValueSerializer(valueSerializer);
+        template.setHashValueSerializer(valueSerializer);
+
+        template.afterPropertiesSet();
+        return template;
     }
 }

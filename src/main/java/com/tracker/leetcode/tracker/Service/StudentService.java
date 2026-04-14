@@ -89,7 +89,7 @@ public class StudentService {
      * Syncs all profile data and clears related caches to ensure fresh data
      */
     @CacheEvict(value = {"student-progress", "student-stats", "student-recent", "student-profile"},
-                key = "#username", allEntries = false)
+                key = "#username")
     public Student syncAllProfileData(String username) {
         log.info("Performing FULL profile sync for user: {}", username);
         Student student = getStudentOrThrow(username);
