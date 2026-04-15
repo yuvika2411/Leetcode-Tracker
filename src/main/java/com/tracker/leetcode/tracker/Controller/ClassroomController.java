@@ -137,4 +137,14 @@ public class ClassroomController {
     public ResponseEntity<ClassroomAnalyticsDTO> getClassroomAnalytics(@PathVariable String classroomId) {
         return ResponseEntity.ok(classroomService.getClassroomAnalytics(classroomId));
     }
+
+    // Add this method inside your ClassroomController class
+    @DeleteMapping("/{classroomId}")
+    public ResponseEntity<String> deleteClassroom(
+            @PathVariable String classroomId,
+            @RequestParam String mentorId) {
+
+        classroomService.deleteClassroom(classroomId, mentorId);
+        return ResponseEntity.ok("Classroom deleted successfully.");
+    }
 }

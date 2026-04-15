@@ -13,6 +13,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -396,5 +397,31 @@ public class ClassroomService {
                 .topStrengths(topStrengths)
                 .criticalWeaknesses(criticalWeaknesses)
                 .build();
+    }
+
+    @CacheEvict(value = {"classroom-dashboard", "classroom-analytics", "mentors-all", "mentor"}, allEntries = true)
+    public void deleteClassroom(String classroomId, String mentorId) {
+        log.info("Attempting to delete classroom ID: {} by mentor ID: {}", classroomId, mentorId);
+
+        // 1. Find the classroom
+        Classroom classroom = classroomRepository.findById(classroomId)
+                .orElseThrow(() -> new ClassroomNotFoundException("Classroom not found with ID: " + classroomId));
+
+        // 2. Security Check: Ensure the mentor deleting it actually owns it
+        if (!classroom.getMentorId().equals(mentorId)) {
+            log.warn("Security Alert: Mentor {} attempted to delete classroom {} which they do not own.", mentorId, classroomId);
+            throw new AccessDeniedException("You do not have permission to delete this classroom.");
+        }
+
+        // 3. Remove the classroom ID from the mentor's profile
+        Mentor mentor = mentorRepository.findById(mentorId)
+                .orElseThrow(() -> new MentorNotFoundException("Mentor not found with ID: " + mentorId));
+
+        mentor.getClassroomIds().remove(classroomId);
+        mentorRepository.save(mentor);
+
+        // 4. Delete the actual classroom document
+        classroomRepository.delete(classroom);
+        log.info("Successfully deleted classroom ID: {}", classroomId);
     }
 }
