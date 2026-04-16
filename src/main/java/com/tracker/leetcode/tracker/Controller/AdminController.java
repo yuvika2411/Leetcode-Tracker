@@ -5,10 +5,9 @@ import com.tracker.leetcode.tracker.Service.AdminService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.CrossOrigin;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.Map;
 
 @Slf4j
 @RestController
@@ -23,4 +22,22 @@ public class AdminController {
     public ResponseEntity<SystemOverviewDTO> getSystemOverview(){
         return ResponseEntity.ok(adminService.getSystemOverview());
     }
+
+    @DeleteMapping("/mentors/{id}")
+    public ResponseEntity<?> deleteMentor(@PathVariable String id) {
+        adminService.deleteMentor(id);
+        return ResponseEntity.ok(Map.of("message", "Mentor and associated classrooms deleted successfully."));
+    }
+
+    @DeleteMapping("/classrooms/{id}")
+    public ResponseEntity<?> deleteClassroom(@PathVariable String id) {
+        adminService.deleteClassroom(id);
+        return ResponseEntity.ok(Map.of("message", "Classroom deleted successfully."));
+    }
+
+    @PostMapping("/sync-all")
+    public ResponseEntity<?> forceGlobalSync() {
+        return ResponseEntity.ok(adminService.forceGlobalSync());
+    }
+
 }
