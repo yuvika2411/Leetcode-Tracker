@@ -40,6 +40,7 @@ public class DatabaseSeeder implements CommandLineRunner {
                     .classroomIds(new ArrayList<>()) // <-- Prevent NullPointerExceptions
                     .build();
 
+            //
             mentorRepository.save(defaultAdmin);
             log.info("Default SUPER_ADMIN created successfully!");
             log.info("Email: admin@leettracker.com | Password: Admin123!");
