@@ -82,7 +82,7 @@ public class AuthenticationController {
                 .accessToken(authResponse.accessToken())
                 .mentorId(authResponse.mentorId())
                 .name(authResponse.name())
-                .role(authResponse.role()) // <-- FIXED: Added Role
+                .role(authResponse.role())
                 .build());
     }
 
